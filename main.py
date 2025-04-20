@@ -4,11 +4,19 @@ from typing import Union
 from anipy_api.provider import get_provider, LanguageTypeEnum
 from anipy_api.anime import Anime
 import logging
-import os
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from urllib.parse import quote
+import httpx
+import asyncio
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+YOUR_BACKEND_URL = "https://web-production-fee0.up.railway.app"
 
 app = FastAPI()
 
@@ -120,3 +128,51 @@ def get_anime_info(anime_id: str):
     except Exception as e:
         logger.error(f"Info error: {e}")
         return {"error": str(e)}
+
+
+# Helper function to rewrite .m3u8 lines
+def rewrite_m3u8(original_m3u8: str) -> str:
+    lines = original_m3u8.splitlines()
+    new_lines = []
+
+    for line in lines:
+        if line.startswith("http") and YOUR_BACKEND_URL not in line:
+            # Rewrite with proxy
+            new_line = f"{YOUR_BACKEND_URL}/segment-proxy?url={quote(line)}"
+        else:
+            new_line = line
+        new_lines.append(new_line)
+
+    return "\n".join(new_lines)
+
+
+@router.get("/proxy-m3u8")
+async def proxy_m3u8(url: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="M3U8 file not found")
+
+            content = response.text
+            rewritten_content = rewrite_m3u8(content)
+            return PlainTextResponse(rewritten_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to proxy m3u8: {str(e)}")
+
+
+@router.get("/segment-proxy")
+async def segment_proxy(url: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "Referer": url,
+                "User-Agent": "Mozilla/5.0"
+            }
+            response = await client.get(url, headers=headers)
+            return StreamingResponse(
+                response.aiter_bytes(),
+                media_type=response.headers.get("content-type", "application/octet-stream")
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to proxy segment: {str(e)}")
