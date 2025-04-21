@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from urllib.parse import quote
+import subprocess
 import httpx
 import asyncio
 
@@ -132,3 +133,11 @@ def get_anime_info(anime_id: str):
 
 
 
+
+@app.get("/ffmpeg-check")
+def check_ffmpeg():
+    try:
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        return {"output": result.stdout.split('\n')[0]}
+    except Exception as e:
+        return {"error": str(e)}
