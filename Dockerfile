@@ -1,20 +1,21 @@
-# Base image
 FROM python:3.11-slim
 
-# Install ffmpeg and other dependencies
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+# Install system dependencies (git and others)
+RUN apt-get update && apt-get install -y \
+    git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Set work directory
 WORKDIR /app
 
-# Copy your code
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
+
+# Copy project files
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Expose the port
-EXPOSE 8000
-
-# Run FastAPI app
+# Run the FastAPI app with uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
