@@ -1,9 +1,9 @@
 # Start with the official Python image
 FROM python:3.9-slim
 
-# Install FFmpeg
+# Install dependencies, including Git and FFmpeg
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
+    apt-get install -y ffmpeg git && \
     rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
