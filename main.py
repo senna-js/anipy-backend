@@ -5,11 +5,11 @@ from anipy_api.provider import get_provider, LanguageTypeEnum
 from anipy_api.anime import Anime
 import logging
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse, FileResponse
 from urllib.parse import quote
 import subprocess
-import httpx
-import asyncio
+import uuid
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -17,14 +17,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-YOUR_BACKEND_URL = "https://web-production-fee0.up.railway.app"
-
 app = FastAPI()
 
 # Whitelist frontend origins
 origins = [
     "http://localhost:5173",
-    "https://anipulse.vercel.app"
+    "https://anipulse.pages.dev"
 ]
 
 app.add_middleware(
@@ -130,14 +128,36 @@ def get_anime_info(anime_id: str):
         logger.error(f"Info error: {e}")
         return {"error": str(e)}
 
-
-
-
-
-@app.get("/ffmpeg-check")
-def check_ffmpeg():
+#Function to download anime using ffmpeg
+@app.get("/download")
+def download_hls_stream(
+    hls_url: str = Query(..., description="Direct HLS .m3u8 URL for selected quality"),
+    filename: str = Query("video.mp4", description="Desired download filename (optional)")
+):
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        return {"output": result.stdout.split('\n')[0]}
+        # Generate a unique filename in a temporary location
+        temp_filename = f"/tmp/{uuid.uuid4().hex}.mp4"
+
+        # FFmpeg command to download and convert HLS to MP4
+        command = [
+            "ffmpeg",
+            "-i", hls_url,
+            "-c", "copy",
+            "-bsf:a", "aac_adtstoasc",
+            "-y",  # Overwrite output if it already exists
+            temp_filename,
+        ]
+
+        subprocess.run(command, check=True)
+
+        return FileResponse(
+            path=temp_filename,
+            filename=filename,
+            media_type="video/mp4",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Video processing failed: {e}")
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
