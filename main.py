@@ -19,26 +19,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Apply the ultimate fix before importing any anipy_api modules
+# Apply the nuclear patch before importing any anipy_api modules
 try:
-    from ultimate_fix import apply_ultimate_fix, strict_encode
-    fix_success = apply_ultimate_fix()
-    logger.info(f"Ultimate fix application: {'Success' if fix_success else 'Failed'}")
+    from nuclear_patch import apply_nuclear_patch, strict_encode
+    fix_success = apply_nuclear_patch()
+    logger.info(f"Nuclear patch application: {'Success' if fix_success else 'Failed'}")
     
     # Make strict_encode available globally
     builtins.strict_encode = strict_encode
     logger.info("Added strict_encode to builtins")
 except Exception as e:
-    logger.error(f"Error applying ultimate fix: {e}")
+    logger.error(f"Error applying nuclear patch: {e}")
     logger.error(traceback.format_exc())
 
-# Now import anipy_api modules
-from anipy_api.provider import get_provider, LanguageTypeEnum
-from anipy_api.anime import Anime
-
-# Add strict_encode to the Anime class
-Anime.strict_encode = staticmethod(strict_encode)
-logger.info("Added strict_encode to Anime class")
+# Import the custom provider
+try:
+    from custom_provider import get_custom_provider, CustomAnime, LanguageTypeEnum
+    logger.info("Successfully imported custom provider")
+    
+    # Use the custom provider instead of the built-in one
+    use_custom_provider = True
+except Exception as e:
+    logger.error(f"Error importing custom provider: {e}")
+    logger.error(traceback.format_exc())
+    
+    # Fall back to the built-in provider
+    use_custom_provider = False
+    
+    # Import the built-in provider
+    try:
+        from anipy_api.provider import get_provider, LanguageTypeEnum
+        from anipy_api.anime import Anime
+        
+        # Add strict_encode to the Anime class
+        Anime.strict_encode = staticmethod(strict_encode)
+        logger.info("Added strict_encode to Anime class")
+    except Exception as e:
+        logger.error(f"Error importing built-in provider: {e}")
+        logger.error(traceback.format_exc())
 
 app = FastAPI()
 
@@ -65,27 +83,33 @@ async def global_exception_handler(request: Request, exc: Exception):
     if "strict_encode" in error_msg:
         logger.error(f"Encoder error: {error_msg}")
         
-        # Check if it's a local variable error
-        if "local variable 'strict_encode' referenced before assignment" in error_msg:
-            logger.error("This is a local variable reference error")
+        # Check if it's a function not defined error
+        if "Function 'strict_encode' not defined" in error_msg:
+            logger.error("This is a function not defined error")
             
             # Try to fix the issue on the fly
             try:
-                from ultimate_fix import apply_ultimate_fix
-                apply_ultimate_fix()
-                logger.info("Re-applied ultimate fix during error handling")
+                # Re-apply the nuclear patch
+                from nuclear_patch import apply_nuclear_patch
+                apply_nuclear_patch()
+                logger.info("Re-applied nuclear patch during error handling")
+                
+                # Switch to the custom provider
+                global use_custom_provider
+                use_custom_provider = True
+                logger.info("Switched to custom provider")
                 
                 return JSONResponse(
                     status_code=500,
                     content={
-                        "error": "Local variable 'strict_encode' referenced before assignment",
+                        "error": "Function 'strict_encode' not defined",
                         "details": error_msg,
                         "fix_attempted": True,
                         "message": "Please try your request again"
                     }
                 )
             except Exception as e:
-                logger.error(f"Error re-applying ultimate fix: {e}")
+                logger.error(f"Error re-applying nuclear patch: {e}")
         
         # Try to extract the encoding instructions from the error
         match = re.search(r'strict_encode$$(\d+), "(.*?)"$$', error_msg)
@@ -102,43 +126,18 @@ async def global_exception_handler(request: Request, exc: Exception):
                 # If we get here, our function works but isn't being found
                 logger.error("The strict_encode function works but isn't being found in the right scope")
                 
-                # Check if it's in builtins
-                has_builtin = hasattr(builtins, 'strict_encode')
-                logger.info(f"strict_encode in builtins: {has_builtin}")
-                
-                # Try to determine where it's being called from
-                tb = traceback.extract_tb(sys.exc_info()[2])
-                calling_file = tb[-1].filename if tb else "unknown"
-                calling_line = tb[-1].lineno if tb else "unknown"
-                logger.info(f"Error occurred in file: {calling_file}, line: {calling_line}")
-                
-                # Try to fix the issue on the fly
-                if not has_builtin:
-                    builtins.strict_encode = strict_encode
-                    logger.info("Re-added strict_encode to builtins")
-                
-                # Try to add it to the module where the error occurred
-                if calling_file != "unknown":
-                    module_name = None
-                    for name, module in sys.modules.items():
-                        try:
-                            if hasattr(module, "__file__") and module.__file__ == calling_file:
-                                module_name = name
-                                if not hasattr(module, "strict_encode"):
-                                    setattr(module, "strict_encode", strict_encode)
-                                    logger.info(f"Added strict_encode to module: {name}")
-                        except Exception:
-                            pass
+                # Switch to the custom provider
+                global use_custom_provider
+                use_custom_provider = True
+                logger.info("Switched to custom provider")
                 
                 return JSONResponse(
                     status_code=500,
                     content={
                         "error": "Encoder function not found in the right scope",
                         "details": error_msg,
-                        "calling_file": calling_file,
-                        "calling_line": calling_line,
-                        "has_builtin": has_builtin,
-                        "fix_attempted": True
+                        "fix_attempted": True,
+                        "message": "Switched to custom provider, please try again"
                     }
                 )
             except Exception as e:
@@ -163,19 +162,23 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Initialize provider
 try:
-    provider = get_provider("animekai")
-    
-    # Add strict_encode to the provider
-    provider.strict_encode = strict_encode
-    
-    logger.info("Successfully initialized animekai provider")
+    if use_custom_provider:
+        provider = get_custom_provider()
+        logger.info("Successfully initialized custom provider")
+    else:
+        provider = get_provider("animekai")
+        
+        # Add strict_encode to the provider
+        provider.strict_encode = strict_encode
+        
+        logger.info("Successfully initialized animekai provider")
 except Exception as e:
     logger.error(f"Failed to initialize provider: {e}")
     provider = None
 
 @app.get("/", tags=["Status"])
 def home():
-    return {"msg": "Anipy Backend is running!"}
+    return {"msg": "Anipy Backend is running!", "provider": "custom" if use_custom_provider else "animekai"}
 
 @app.get("/test-encoder", tags=["Diagnostics"])
 def test_encoder():
@@ -218,7 +221,8 @@ def test_encoder():
             "globally_available": has_global,
             "global_test": global_test,
             "modules_with_function": modules_with_function,
-            "encoder_version": "ultimate_fix"
+            "encoder_version": "nuclear_patch",
+            "provider": "custom" if use_custom_provider else "animekai"
         }
     except Exception as e:
         logger.error(f"Encoder test failed: {e}")
@@ -231,14 +235,25 @@ def search_anime(query: str):
             return {"error": "Provider not initialized"}
         
         results = provider.get_search(query)
-        return [
-            {
-                "title": r.name,
-                "id": r.identifier,
-                "languages": [lang.name for lang in r.languages],
-            }
-            for r in results
-        ]
+        
+        if use_custom_provider:
+            return [
+                {
+                    "title": r.name,
+                    "id": r.identifier,
+                    "languages": [lang.name for lang in r.languages],
+                }
+                for r in results
+            ]
+        else:
+            return [
+                {
+                    "title": r.name,
+                    "id": r.identifier,
+                    "languages": [lang.name for lang in r.languages],
+                }
+                for r in results
+            ]
     except Exception as e:
         logger.error(f"Search error: {e}")
         return {"error": str(e)}
@@ -249,82 +264,79 @@ def get_episodes(anime_id: str):
         if not provider:
             return {"error": "Provider not initialized"}
         
-        # Create anime object with detailed logging
-        logger.info(f"Creating Anime object for ID: {anime_id}")
-        try:
-            # Create the anime object
-            anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
-            
-            # Add strict_encode to the anime object
-            anime.strict_encode = strict_encode
-            
-            logger.info("Successfully created Anime object")
-        except Exception as e:
-            logger.error(f"Error creating Anime object: {e}")
-            
-            # Check if it's a local variable error
-            if "local variable 'strict_encode' referenced before assignment" in str(e):
-                logger.error("This is a local variable reference error")
+        if use_custom_provider:
+            # Use the custom provider
+            try:
+                # Search for the anime to get its details
+                results = provider.get_search(anime_id)
+                target_result = next((r for r in results if r.identifier == anime_id), None)
+                if not target_result:
+                    return {"error": "Anime not found with this ID."}
                 
-                # Try to fix the issue on the fly
-                try:
-                    from ultimate_fix import apply_ultimate_fix
-                    apply_ultimate_fix()
-                    logger.info("Re-applied ultimate fix")
+                # Create the anime object
+                anime = CustomAnime.from_search_result(provider, target_result)
+                
+                # Get episodes
+                episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
+                
+                return {"anime_id": anime_id, "episodes": episodes}
+            except Exception as e:
+                logger.error(f"Error using custom provider: {e}")
+                return {"error": f"Failed to get episodes with custom provider: {str(e)}"}
+        else:
+            # Use the built-in provider
+            try:
+                # Create anime object with detailed logging
+                logger.info(f"Creating Anime object for ID: {anime_id}")
+                
+                # Create the anime object
+                anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
+                
+                # Add strict_encode to the anime object
+                anime.strict_encode = strict_encode
+                
+                logger.info("Successfully created Anime object")
+                
+                # Get episodes with detailed logging
+                logger.info("Retrieving episodes...")
+                
+                # Get episodes
+                episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
+                logger.info(f"Successfully retrieved {len(episodes)} episodes")
+                
+                return {"anime_id": anime_id, "episodes": episodes}
+            except Exception as e:
+                logger.error(f"Error using built-in provider: {e}")
+                
+                # Check if it's a function not defined error
+                if "Function 'strict_encode' not defined" in str(e):
+                    logger.error("This is a function not defined error")
                     
-                    # Try again with the fixed function
+                    # Switch to the custom provider
+                    global use_custom_provider
+                    use_custom_provider = True
+                    logger.info("Switched to custom provider")
+                    
+                    # Try again with the custom provider
                     try:
+                        # Search for the anime to get its details
+                        results = provider.get_search(anime_id)
+                        target_result = next((r for r in results if r.identifier == anime_id), None)
+                        if not target_result:
+                            return {"error": "Anime not found with this ID."}
+                        
                         # Create the anime object
-                        anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
+                        anime = CustomAnime.from_search_result(provider, target_result)
                         
-                        # Add strict_encode to the anime object
-                        anime.strict_encode = strict_encode
-                        
-                        logger.info("Successfully created Anime object after fix")
-                    except Exception as retry_e:
-                        logger.error(f"Error creating Anime object after fix: {retry_e}")
-                        return {"error": f"Failed to create anime object after fix: {str(retry_e)}"}
-                except Exception as fix_e:
-                    logger.error(f"Error re-applying ultimate fix: {fix_e}")
-                    return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
-            else:
-                return {"error": f"Failed to create anime object: {str(e)}"}
-        
-        # Get episodes with detailed logging
-        logger.info("Retrieving episodes...")
-        try:
-            # Get episodes
-            episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
-            logger.info(f"Successfully retrieved {len(episodes)} episodes")
-        except Exception as e:
-            logger.error(f"Error retrieving episodes: {e}")
-            
-            # Check if it's a local variable error
-            if "local variable 'strict_encode' referenced before assignment" in str(e):
-                logger.error("This is a local variable reference error during episode retrieval")
-                
-                # Try to fix the issue on the fly
-                try:
-                    from ultimate_fix import apply_ultimate_fix
-                    apply_ultimate_fix()
-                    logger.info("Re-applied ultimate fix")
-                    
-                    # Try again with the fixed function
-                    try:
                         # Get episodes
                         episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
-                        logger.info(f"Successfully retrieved {len(episodes)} episodes after fix")
+                        
                         return {"anime_id": anime_id, "episodes": episodes}
                     except Exception as retry_e:
-                        logger.error(f"Error retrieving episodes after fix: {retry_e}")
-                        return {"error": f"Failed to retrieve episodes after fix: {str(retry_e)}"}
-                except Exception as fix_e:
-                    logger.error(f"Error re-applying ultimate fix: {fix_e}")
-                    return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
-            
-            return {"error": f"Failed to retrieve episodes: {str(e)}"}
-        
-        return {"anime_id": anime_id, "episodes": episodes}
+                        logger.error(f"Error using custom provider: {retry_e}")
+                        return {"error": f"Failed to get episodes with custom provider: {str(retry_e)}"}
+                
+                return {"error": f"Failed to get episodes: {str(e)}"}
     except Exception as e:
         logger.error(f"Episode error: {e}")
         logger.error(traceback.format_exc())
@@ -340,143 +352,167 @@ def get_streams(
         if not provider:
             return {"error": "Provider not initialized"}
         
-        # Apply the ultimate fix again just to be sure
-        try:
-            from ultimate_fix import apply_ultimate_fix
-            apply_ultimate_fix()
-            logger.info("Re-applied ultimate fix before stream retrieval")
-        except Exception as e:
-            logger.error(f"Error re-applying ultimate fix: {e}")
-        
-        logger.info(f"🔍 Searching for anime: {anime_id}")
-        results = provider.get_search(anime_id)
-
-        # Match exactly by identifier
-        target_result = next((r for r in results if r.identifier == anime_id), None)
-        if not target_result:
-            return {"error": "Exact anime match not found for this ID."}
-
-        logger.info(f"Found anime: {target_result.name}")
-        
-        # Create anime object
-        try:
-            # Create the anime object with explicit strict_encode
-            # First, ensure strict_encode is in the module's globals
-            import anipy_api.anime
-            anipy_api.anime.strict_encode = strict_encode
-            
-            # Create the anime object
-            anime_obj = Anime.from_search_result(provider, target_result)
-            
-            # Add strict_encode to the anime object
-            anime_obj.strict_encode = strict_encode
-            
-            logger.info(f"Created anime object for: {anime_obj.name}")
-        except Exception as e:
-            logger.error(f"Error creating anime object: {e}")
-            
-            # Check if it's a local variable error
-            if "local variable 'strict_encode' referenced before assignment" in str(e):
-                logger.error("This is a local variable reference error")
+        if use_custom_provider:
+            # Use the custom provider
+            try:
+                # Search for the anime to get its details
+                results = provider.get_search(anime_id)
+                target_result = next((r for r in results if r.identifier == anime_id), None)
+                if not target_result:
+                    return {"error": "Anime not found with this ID."}
                 
-                # Try a more direct approach
-                try:
-                    # Create a custom Anime class with strict_encode built-in
-                    class CustomAnime(Anime):
-                        def __init__(self, *args, **kwargs):
-                            # Define strict_encode in the local scope
-                            self.strict_encode = strict_encode
-                            super().__init__(*args, **kwargs)
-                        
-                        @classmethod
-                        def from_search_result(cls, provider, search_result):
-                            instance = super().from_search_result(provider, search_result)
-                            instance.strict_encode = strict_encode
-                            return instance
-                    
-                    # Use the custom class
-                    anime_obj = CustomAnime.from_search_result(provider, target_result)
-                    logger.info(f"Created custom anime object for: {anime_obj.name}")
-                except Exception as custom_e:
-                    logger.error(f"Error creating custom anime object: {custom_e}")
-                    return {"error": f"Failed to create anime object with custom class: {str(custom_e)}"}
-            else:
-                return {"error": f"Failed to create anime object: {str(e)}"}
-        
-        # Get episodes
-        try:
-            # Get episodes
-            episodes = anime_obj.get_episodes(lang=language)
-            logger.info(f"Got {len(episodes)} episodes")
-        except Exception as e:
-            logger.error(f"Error getting episodes: {e}")
-            return {"error": f"Failed to get episodes: {str(e)}"}
-
-        if episode not in episodes:
-            return {"error": f"Episode {episode} is not available in {language.name}."}
-
-        # Get videos
-        try:
-            logger.info(f"Getting videos for episode {episode}")
-            
-            # Add strict_encode to the anime object again just to be sure
-            anime_obj.strict_encode = strict_encode
-            
-            # Get videos
-            streams = anime_obj.get_videos(episode, language)
-            logger.info(f"Got {len(streams) if streams else 0} streams")
-        except Exception as e:
-            logger.error(f"Error getting videos: {e}")
-            
-            # Check if it's a local variable error
-            if "local variable 'strict_encode' referenced before assignment" in str(e):
-                logger.error("This is a local variable reference error during video retrieval")
+                # Create the anime object
+                anime_obj = CustomAnime.from_search_result(provider, target_result)
                 
-                # Try a more direct approach - monkey patch the method
-                try:
-                    # Get the original method
-                    original_get_videos = anime_obj.get_videos
+                # Get episodes
+                episodes = anime_obj.get_episodes(lang=language)
+                
+                if episode not in episodes:
+                    return {"error": f"Episode {episode} is not available in {language.name}."}
+                
+                # Get videos
+                streams = anime_obj.get_videos(episode, language)
+                
+                if not streams:
+                    return {"error": "No streams found for this episode."}
+                
+                available_streams = [
+                    {
+                        "quality": stream.resolution,
+                        "url": stream.url,
+                        "language": stream.language.name,
+                        "referrer": stream.referrer
+                    }
+                    for stream in streams if stream and stream.url
+                ]
+                
+                return {
+                    "anime": anime_obj.name,
+                    "episode": episode,
+                    "language": language.name,
+                    "available_streams": sorted(available_streams, key=lambda s: s["quality"], reverse=True)
+                }
+            except Exception as e:
+                logger.error(f"Error using custom provider: {e}")
+                return {"error": f"Failed to get streams with custom provider: {str(e)}"}
+        else:
+            # Use the built-in provider
+            try:
+                logger.info(f"🔍 Searching for anime: {anime_id}")
+                results = provider.get_search(anime_id)
+                
+                # Match exactly by identifier
+                target_result = next((r for r in results if r.identifier == anime_id), None)
+                if not target_result:
+                    return {"error": "Exact anime match not found for this ID."}
+                
+                logger.info(f"Found anime: {target_result.name}")
+                
+                # Create the anime object with explicit strict_encode
+                # First, ensure strict_encode is in the module's globals
+                import anipy_api.anime
+                anipy_api.anime.strict_encode = strict_encode
+                
+                # Create the anime object
+                anime_obj = Anime.from_search_result(provider, target_result)
+                
+                # Add strict_encode to the anime object
+                anime_obj.strict_encode = strict_encode
+                
+                logger.info(f"Created anime object for: {anime_obj.name}")
+                
+                # Get episodes
+                episodes = anime_obj.get_episodes(lang=language)
+                logger.info(f"Got {len(episodes)} episodes")
+                
+                if episode not in episodes:
+                    return {"error": f"Episode {episode} is not available in {language.name}."}
+                
+                # Get videos
+                logger.info(f"Getting videos for episode {episode}")
+                
+                # Add strict_encode to the anime object again just to be sure
+                anime_obj.strict_encode = strict_encode
+                
+                # Get videos
+                streams = anime_obj.get_videos(episode, language)
+                logger.info(f"Got {len(streams) if streams else 0} streams")
+                
+                if not streams:
+                    return {"error": "No streams found for this episode."}
+                
+                available_streams = [
+                    {
+                        "quality": stream.resolution,
+                        "url": stream.url,
+                        "language": stream.language.name,
+                        "referrer": stream.referrer
+                    }
+                    for stream in streams if stream and stream.url
+                ]
+                
+                return {
+                    "anime": anime_obj.name,
+                    "episode": episode,
+                    "language": language.name,
+                    "available_streams": sorted(available_streams, key=lambda s: s["quality"], reverse=True)
+                }
+            except Exception as e:
+                logger.error(f"Error using built-in provider: {e}")
+                
+                # Check if it's a function not defined error
+                if "Function 'strict_encode' not defined" in str(e):
+                    logger.error("This is a function not defined error")
                     
-                    # Create a wrapper that ensures strict_encode is available
-                    def get_videos_wrapper(self, episode, language=None):
-                        # Define strict_encode in the local scope
-                        strict_encode_local = strict_encode
+                    # Switch to the custom provider
+                    global use_custom_provider
+                    use_custom_provider = True
+                    logger.info("Switched to custom provider")
+                    
+                    # Try again with the custom provider
+                    try:
+                        # Search for the anime to get its details
+                        results = provider.get_search(anime_id)
+                        target_result = next((r for r in results if r.identifier == anime_id), None)
+                        if not target_result:
+                            return {"error": "Anime not found with this ID."}
                         
-                        # Call the original method with the local variable
-                        return original_get_videos(episode, language)
-                    
-                    # Replace the method
-                    anime_obj.get_videos = types.MethodType(get_videos_wrapper, anime_obj)
-                    
-                    # Try again
-                    streams = anime_obj.get_videos(episode, language)
-                    logger.info(f"Got {len(streams) if streams else 0} streams after monkey patching")
-                except Exception as patch_e:
-                    logger.error(f"Error after monkey patching: {patch_e}")
-                    return {"error": f"Failed to get videos after monkey patching: {str(patch_e)}"}
-            
-            return {"error": f"Failed to get videos: {str(e)}"}
-
-        if not streams:
-            return {"error": "No streams found for this episode."}
-
-        available_streams = [
-            {
-                "quality": stream.resolution,
-                "url": stream.url,
-                "language": stream.language.name,
-                "referrer": stream.referrer
-            }
-            for stream in streams if stream and stream.url
-        ]
-
-        return {
-            "anime": anime_obj.name,
-            "episode": episode,
-            "language": language.name,
-            "available_streams": sorted(available_streams, key=lambda s: s["quality"], reverse=True)
-        }
-
+                        # Create the anime object
+                        anime_obj = CustomAnime.from_search_result(provider, target_result)
+                        
+                        # Get episodes
+                        episodes = anime_obj.get_episodes(lang=language)
+                        
+                        if episode not in episodes:
+                            return {"error": f"Episode {episode} is not available in {language.name}."}
+                        
+                        # Get videos
+                        streams = anime_obj.get_videos(episode, language)
+                        
+                        if not streams:
+                            return {"error": "No streams found for this episode."}
+                        
+                        available_streams = [
+                            {
+                                "quality": stream.resolution,
+                                "url": stream.url,
+                                "language": stream.language.name,
+                                "referrer": stream.referrer
+                            }
+                            for stream in streams if stream and stream.url
+                        ]
+                        
+                        return {
+                            "anime": anime_obj.name,
+                            "episode": episode,
+                            "language": language.name,
+                            "available_streams": sorted(available_streams, key=lambda s: s["quality"], reverse=True)
+                        }
+                    except Exception as retry_e:
+                        logger.error(f"Error using custom provider: {retry_e}")
+                        return {"error": f"Failed to get streams with custom provider: {str(retry_e)}"}
+                
+                return {"error": f"Failed to get streams: {str(e)}"}
     except Exception as e:
         logger.error(f"Stream error: {e}")
         logger.error(traceback.format_exc())
@@ -488,52 +524,73 @@ def get_anime_info(anime_id: str):
         if not provider:
             return {"error": "Provider not initialized"}
         
-        results = provider.get_search(anime_id)
-        target_result = next((r for r in results if r.identifier == anime_id), None)
-        if not target_result:
-            return {"error": "Anime not found with this ID."}
-
-        try:
-            # Create the anime object
-            anime = Anime.from_search_result(provider, target_result)
-            
-            # Add strict_encode to the anime object
-            anime.strict_encode = strict_encode
-            
-            info = anime.get_info()
-            return {"info": info}
-        except Exception as e:
-            logger.error(f"Error getting anime info: {e}")
-            
-            # Check if it's a local variable error
-            if "local variable 'strict_encode' referenced before assignment" in str(e):
-                logger.error("This is a local variable reference error")
+        if use_custom_provider:
+            # Use the custom provider
+            try:
+                # Search for the anime to get its details
+                results = provider.get_search(anime_id)
+                target_result = next((r for r in results if r.identifier == anime_id), None)
+                if not target_result:
+                    return {"error": "Anime not found with this ID."}
                 
-                # Try to fix the issue on the fly
-                try:
-                    from ultimate_fix import apply_ultimate_fix
-                    apply_ultimate_fix()
-                    logger.info("Re-applied ultimate fix")
+                # Create the anime object
+                anime = CustomAnime.from_search_result(provider, target_result)
+                
+                # Get info
+                info = anime.get_info()
+                
+                return {"info": info}
+            except Exception as e:
+                logger.error(f"Error using custom provider: {e}")
+                return {"error": f"Failed to get anime info with custom provider: {str(e)}"}
+        else:
+            # Use the built-in provider
+            try:
+                results = provider.get_search(anime_id)
+                target_result = next((r for r in results if r.identifier == anime_id), None)
+                if not target_result:
+                    return {"error": "Anime not found with this ID."}
+                
+                # Create the anime object
+                anime = Anime.from_search_result(provider, target_result)
+                
+                # Add strict_encode to the anime object
+                anime.strict_encode = strict_encode
+                
+                info = anime.get_info()
+                return {"info": info}
+            except Exception as e:
+                logger.error(f"Error using built-in provider: {e}")
+                
+                # Check if it's a function not defined error
+                if "Function 'strict_encode' not defined" in str(e):
+                    logger.error("This is a function not defined error")
                     
-                    # Try again with the fixed function
+                    # Switch to the custom provider
+                    global use_custom_provider
+                    use_custom_provider = True
+                    logger.info("Switched to custom provider")
+                    
+                    # Try again with the custom provider
                     try:
+                        # Search for the anime to get its details
+                        results = provider.get_search(anime_id)
+                        target_result = next((r for r in results if r.identifier == anime_id), None)
+                        if not target_result:
+                            return {"error": "Anime not found with this ID."}
+                        
                         # Create the anime object
-                        anime = Anime.from_search_result(provider, target_result)
+                        anime = CustomAnime.from_search_result(provider, target_result)
                         
-                        # Add strict_encode to the anime object
-                        anime.strict_encode = strict_encode
-                        
+                        # Get info
                         info = anime.get_info()
+                        
                         return {"info": info}
                     except Exception as retry_e:
-                        logger.error(f"Error getting anime info after fix: {retry_e}")
-                        return {"error": f"Failed to get anime info after fix: {str(retry_e)}"}
-                except Exception as fix_e:
-                    logger.error(f"Error re-applying ultimate fix: {fix_e}")
-                    return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
-            
-            return {"error": f"Failed to get anime info: {str(e)}"}
-
+                        logger.error(f"Error using custom provider: {retry_e}")
+                        return {"error": f"Failed to get anime info with custom provider: {str(retry_e)}"}
+                
+                return {"error": f"Failed to get anime info: {str(e)}"}
     except Exception as e:
         logger.error(f"Info error: {e}")
         return {"error": str(e)}
