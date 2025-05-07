@@ -1,17 +1,16 @@
+from fastapi import FastAPI, Query, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from typing import Union, Dict, Any
 import builtins
 import sys
 import logging
+import traceback
 import os
 import re
-import traceback
-from fastapi import FastAPI, Query, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from typing import Union, Dict, Any
-from fastapi import APIRouter
-from fastapi.responses import PlainTextResponse, StreamingResponse, FileResponse, JSONResponse
-from urllib.parse import quote
 import subprocess
 import uuid
+from urllib.parse import quote
 
 # Configure logging first
 logging.basicConfig(
@@ -24,26 +23,28 @@ logger = logging.getLogger(__name__)
 from encoder import (
     strict_encode, 
     encode_string, 
-    encode_bytes
+    encode_bytes,
+    batch_encode,
+    benchmark,
+    clear_caches
 )
 
 # Make strict_encode available globally
 builtins.strict_encode = strict_encode
 logger.info("Added strict_encode to builtins")
 
+# Run the patch script to ensure strict_encode is available in all anipy_api modules
+try:
+    from patch_anipy import patch_anipy_api
+    patch_success = patch_anipy_api()
+    logger.info(f"Patch script execution: {'Success' if patch_success else 'Failed'}")
+except Exception as e:
+    logger.error(f"Error running patch script: {e}")
+    logger.error(traceback.format_exc())
+
 # Now import anipy_api modules
 from anipy_api.provider import get_provider, LanguageTypeEnum
 from anipy_api.anime import Anime
-
-# Monkey patch all anipy_api modules to include strict_encode
-for module_name in list(sys.modules.keys()):
-    if module_name.startswith('anipy_api'):
-        module = sys.modules[module_name]
-        if not hasattr(module, 'strict_encode'):
-            setattr(module, 'strict_encode', strict_encode)
-            logger.info(f"Added strict_encode to module: {module_name}")
-
-router = APIRouter()
 
 app = FastAPI()
 
@@ -71,15 +72,16 @@ async def global_exception_handler(request: Request, exc: Exception):
         logger.error(f"Encoder error: {error_msg}")
         
         # Try to extract the encoding instructions from the error
-        match = re.search(r'strict_encode$$n, "(.*?)"$$', error_msg)
+        match = re.search(r'strict_encode$$(\d+), "(.*?)"$$', error_msg)
         if match:
-            instructions = match.group(1)
-            logger.info(f"Attempted encoding instructions: {instructions}")
+            n_value = int(match.group(1))
+            instructions = match.group(2)
+            logger.info(f"Attempted to call strict_encode with n={n_value}, instructions='{instructions}'")
             
             # Test if our strict_encode function works with these instructions
             try:
-                test_result = strict_encode(100, instructions)
-                logger.info(f"Encoder test successful with sample value 100: {test_result[:5]}...")
+                test_result = strict_encode(n_value, instructions)
+                logger.info(f"Encoder test successful with sample value {n_value}: {test_result[:5]}...")
                 
                 # If we get here, our function works but isn't being found
                 logger.error("The strict_encode function works but isn't being found in the right scope")
@@ -94,6 +96,24 @@ async def global_exception_handler(request: Request, exc: Exception):
                 calling_line = tb[-1].lineno if tb else "unknown"
                 logger.info(f"Error occurred in file: {calling_file}, line: {calling_line}")
                 
+                # Try to fix the issue on the fly
+                if not has_builtin:
+                    builtins.strict_encode = strict_encode
+                    logger.info("Re-added strict_encode to builtins")
+                
+                # Try to add it to the module where the error occurred
+                if calling_file != "unknown":
+                    module_name = None
+                    for name, module in sys.modules.items():
+                        try:
+                            if hasattr(module, "__file__") and module.__file__ == calling_file:
+                                module_name = name
+                                if not hasattr(module, "strict_encode"):
+                                    setattr(module, "strict_encode", strict_encode)
+                                    logger.info(f"Added strict_encode to module: {name}")
+                        except Exception:
+                            pass
+                
                 return JSONResponse(
                     status_code=500,
                     content={
@@ -101,7 +121,8 @@ async def global_exception_handler(request: Request, exc: Exception):
                         "details": error_msg,
                         "calling_file": calling_file,
                         "calling_line": calling_line,
-                        "has_builtin": has_builtin
+                        "has_builtin": has_builtin,
+                        "fix_attempted": True
                     }
                 )
             except Exception as e:
@@ -170,6 +191,9 @@ def test_encoder():
                 if hasattr(module, 'strict_encode'):
                     modules_with_function.append(module_name)
         
+        # Benchmark the encoder
+        benchmark_result = benchmark(value, instructions, iterations=1000)
+        
         return {
             "status": "success",
             "simple_test": result,
@@ -177,7 +201,8 @@ def test_encoder():
             "globally_available": has_global,
             "global_test": global_test,
             "modules_with_function": modules_with_function,
-            "encoder_version": "secure"
+            "benchmark_ms": benchmark_result,
+            "encoder_version": "secure_optimized"
         }
     except Exception as e:
         logger.error(f"Encoder test failed: {e}")
@@ -208,11 +233,61 @@ def get_episodes(anime_id: str):
         if not provider:
             return {"error": "Provider not initialized"}
         
-        anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
-        episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
+        # Verify strict_encode is available before proceeding
+        if not hasattr(builtins, 'strict_encode'):
+            logger.error("strict_encode not found in builtins before episode retrieval")
+            # Add it again just to be sure
+            builtins.strict_encode = strict_encode
+            logger.info("Re-added strict_encode to builtins")
+        
+        # Verify it's available in the anipy_api modules
+        for module_name in list(sys.modules.keys()):
+            if module_name.startswith('anipy_api'):
+                module = sys.modules[module_name]
+                if not hasattr(module, 'strict_encode'):
+                    setattr(module, 'strict_encode', strict_encode)
+                    logger.info(f"Added strict_encode to module: {module_name}")
+        
+        # Create anime object with detailed logging
+        logger.info(f"Creating Anime object for ID: {anime_id}")
+        try:
+            anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
+            logger.info("Successfully created Anime object")
+        except Exception as e:
+            logger.error(f"Error creating Anime object: {e}")
+            return {"error": f"Failed to create Anime object: {str(e)}"}
+        
+        # Get episodes with detailed logging
+        logger.info("Retrieving episodes...")
+        try:
+            episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
+            logger.info(f"Successfully retrieved {len(episodes)} episodes")
+        except Exception as e:
+            logger.error(f"Error retrieving episodes: {e}")
+            # Check if the error is related to strict_encode
+            if "strict_encode" in str(e):
+                logger.error("This is a strict_encode error")
+                # Try to extract the encoding instructions from the error
+                match = re.search(r'strict_encode$$(\d+), "(.*?)"$$', str(e))
+                if match:
+                    n_value = int(match.group(1))
+                    instructions = match.group(2)
+                    logger.info(f"Attempted to call strict_encode with n={n_value}, instructions='{instructions}'")
+                    
+                    # Try to execute the function directly
+                    try:
+                        result = strict_encode(n_value, instructions)
+                        logger.info(f"Manual execution successful: {result[:5]}...")
+                        logger.error("Function works but isn't accessible in the right scope")
+                    except Exception as inner_e:
+                        logger.error(f"Manual execution failed: {inner_e}")
+            
+            return {"error": f"Failed to retrieve episodes: {str(e)}"}
+        
         return {"anime_id": anime_id, "episodes": episodes}
     except Exception as e:
         logger.error(f"Episode error: {e}")
+        logger.error(traceback.format_exc())
         return {"error": str(e)}
 
 @app.get("/stream/{anime_id}/{episode}", tags=["Streaming"])
@@ -225,6 +300,13 @@ def get_streams(
         if not provider:
             return {"error": "Provider not initialized"}
         
+        # Verify strict_encode is available before proceeding
+        if not hasattr(builtins, 'strict_encode'):
+            logger.error("strict_encode not found in builtins before stream retrieval")
+            # Add it again just to be sure
+            builtins.strict_encode = strict_encode
+            logger.info("Re-added strict_encode to builtins")
+        
         logger.info(f"🔍 Searching for anime: {anime_id}")
         results = provider.get_search(anime_id)
 
@@ -234,12 +316,6 @@ def get_streams(
             return {"error": "Exact anime match not found for this ID."}
 
         logger.info(f"Found anime: {target_result.name}")
-        
-        # Verify strict_encode is available before proceeding
-        if not hasattr(builtins, 'strict_encode'):
-            logger.error("strict_encode not found in builtins before creating anime object")
-            # Add it again just to be sure
-            builtins.strict_encode = strict_encode
         
         # Create anime object
         try:
