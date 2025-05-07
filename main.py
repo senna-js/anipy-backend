@@ -1,23 +1,27 @@
-from fastapi import FastAPI, Query
-from fastapi.middleware.cors import CORSMiddleware
-from typing import Union
-from anipy_api.provider import get_provider, LanguageTypeEnum
-from anipy_api.anime import Anime
 import logging
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse, FileResponse
-from urllib.parse import quote
-import subprocess
-import uuid
-import os
+import sys
+from fastapi import FastAPI, Query, HTTPException, Depends, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Union, List, Dict, Any, Optional
+from pydantic import BaseModel
+import json
+
+# Import our secure encoder
+from encoder import strict_encode, encode_string, encode_bytes
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
-app = FastAPI()
+# Create FastAPI app
+app = FastAPI(
+    title="Anime Streaming API",
+    description="API for searching and streaming anime content",
+    version="1.0.0"
+)
 
 # Whitelist frontend origins
 origins = [
@@ -33,131 +37,133 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-provider = get_provider("animekai")
+router = APIRouter(tags=["Encoder"])
 
-@app.get("/", tags=["Status"])
+# Define response models
+class EncodingResult(BaseModel):
+    input_value: int
+    encoded_values: List[int]
+    instructions: str
+
+class StringEncodingResult(BaseModel):
+    input_text: str
+    encoded_values: List[List[int]]
+    instructions: str
+
+@router.get("/", tags=["Status"])
 def home():
-    return {"msg": "Anipy Backend is running!"}
+    return {"msg": "Encoder API is running!"}
 
-@app.get("/search/{query}", tags=["Search"])
-def search_anime(query: str):
-    try:
-        results = provider.get_search(query)
-        return [
-            {
-                "title": r.name,
-                "id": r.identifier,
-                "languages": [lang.name for lang in r.languages],
-            }
-            for r in results
-        ]
-    except Exception as e:
-        logger.error(f"Search error: {e}")
-        return {"error": str(e)}
-
-@app.get("/episodes/{anime_id}", tags=["Episodes"])
-def get_episodes(anime_id: str):
-    try:
-        anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
-        episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
-        return {"anime_id": anime_id, "episodes": episodes}
-    except Exception as e:
-        logger.error(f"Episode error: {e}")
-        return {"error": str(e)}
-
-@app.get("/stream/{anime_id}/{episode}", tags=["Streaming"])
-def get_streams(
-    anime_id: str,
-    episode: Union[int, float],
-    language: LanguageTypeEnum = Query(default=LanguageTypeEnum.SUB)
+@router.get("/encode/{value}", response_model=EncodingResult)
+def encode_value(
+    value: int,
+    instructions: str = Query(
+        "(n + 111) % 256;n ^ 217;~n & 255",
+        description="Semicolon-separated encoding instructions"
+    )
 ):
+    """
+    Encode a numeric value using the provided instructions.
+    """
     try:
-        logger.info(f"🔍 Searching for anime: {anime_id}")
-        results = provider.get_search(anime_id)
-
-        # Match exactly by identifier
-        target_result = next((r for r in results if r.identifier == anime_id), None)
-        if not target_result:
-            return {"error": "Exact anime match not found for this ID."}
-
-        anime_obj = Anime.from_search_result(provider, target_result)
-        episodes = anime_obj.get_episodes(lang=language)
-
-        if episode not in episodes:
-            return {"error": f"Episode {episode} is not available in {language.name}."}
-
-        streams = anime_obj.get_videos(episode, language)
-
-        if not streams:
-            return {"error": "No streams found for this episode."}
-
-        available_streams = [
-            {
-                "quality": stream.resolution,
-                "url": stream.url,
-                "language": stream.language.name,
-                "referrer": stream.referrer
-            }
-            for stream in streams if stream and stream.url
-        ]
-
+        encoded = strict_encode(value, instructions)
         return {
-            "anime": anime_obj.name,
-            "episode": episode,
-            "language": language.name,
-            "available_streams": sorted(available_streams, key=lambda s: s["quality"], reverse=True)
+            "input_value": value,
+            "encoded_values": encoded,
+            "instructions": instructions
         }
-
+    except ValueError as e:
+        logger.error(f"Encoding error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Stream error: {e}")
-        return {"error": str(e)}
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
-@app.get("/anime-info/{anime_id}", tags=["Info"])
-def get_anime_info(anime_id: str):
-    try:
-        results = provider.get_search(anime_id)
-        target_result = next((r for r in results if r.identifier == anime_id), None)
-        if not target_result:
-            return {"error": "Anime not found with this ID."}
-
-        anime = Anime.from_search_result(provider, target_result)
-        info = anime.get_info()
-        return {"info": info}
-
-    except Exception as e:
-        logger.error(f"Info error: {e}")
-        return {"error": str(e)}
-
-#Function to download anime using ffmpeg
-@app.get("/download")
-def download_hls_stream(
-    hls_url: str = Query(..., description="Direct HLS .m3u8 URL for selected quality"),
-    filename: str = Query("video.mp4", description="Desired download filename (optional)")
+@router.get("/encode-string", response_model=StringEncodingResult)
+def encode_text(
+    text: str = Query(..., description="Text to encode"),
+    instructions: str = Query(
+        "(n + 111) % 256;n ^ 217;~n & 255",
+        description="Semicolon-separated encoding instructions"
+    )
 ):
+    """
+    Encode a string using the provided instructions.
+    """
     try:
-        # Generate a unique filename in a temporary location
-        temp_filename = f"/tmp/{uuid.uuid4().hex}.mp4"
-
-        # FFmpeg command to download and convert HLS to MP4
-        command = [
-            "ffmpeg",
-            "-i", hls_url,
-            "-c", "copy",
-            "-bsf:a", "aac_adtstoasc",
-            "-y",  # Overwrite output if it already exists
-            temp_filename,
-        ]
-
-        subprocess.run(command, check=True)
-
-        return FileResponse(
-            path=temp_filename,
-            filename=filename,
-            media_type="video/mp4",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-        )
-
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Video processing failed: {e}")
+        encoded = encode_string(text, instructions)
+        return {
+            "input_text": text,
+            "encoded_values": encoded,
+            "instructions": instructions
+        }
+    except ValueError as e:
+        logger.error(f"String encoding error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+# Include router in app
+app.include_router(router)
+
+def demo_encoder():
+    """
+    Demonstrate the encoder functionality in a command-line context.
+    """
+    print("Secure Encoder Demo")
+    print("===================")
+    
+    # Example 1: Encode a single value
+    value = 100
+    instructions = "(n + 111) % 256;n ^ 217;~n & 255"
+    
+    try:
+        print(f"\nExample 1: Encoding value {value} with instructions '{instructions}'")
+        result = strict_encode(value, instructions)
+        print(f"Result: {result}")
+        
+        # Verify the results manually
+        expected = [(100 + 111) % 256, 100 ^ 217, ~100 & 255]
+        print(f"Expected: {expected}")
+        print(f"Match: {result == expected}")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # Example 2: Encode a string
+    text = "Hello, World!"
+    instructions = "(n + 111) % 256;n ^ 217"
+    
+    try:
+        print(f"\nExample 2: Encoding string '{text}' with instructions '{instructions}'")
+        result = encode_string(text, instructions)
+        print(f"Result: {result}")
+        
+        # Print in a more readable format
+        print("Character by character:")
+        for i, char in enumerate(text):
+            print(f"'{char}' (ASCII {ord(char)}) -> {result[i]}")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    # Example 3: Test with the full instruction set from the error message
+    value = 100
+    full_instructions = "(n + 111) % 256;(n + 212) % 256;n ^ 217;(n + 214) % 256;(n + 151) % 256;~n & 255;~n & 255;~n & 255;(n - 1 + 256) % 256;(n - 96 + 256) % 256;~n & 255;~n & 255;(n - 206 + 256) % 256;~n & 255;(n + 116) % 256;n ^ 70;n ^ 147;(n + 190) % 256;n ^ 222;(n - 118 + 256) % 256;(n - 227 + 256) % 256;~n & 255;(n << 4 | (n & 0xFF) >> 4) & 255;(n + 22) % 256;~n & 255;(n + 94) % 256;(n + 146) % 256;~n & 255;(n - 206 + 256) % 256;(n - 62 + 256) % 256"
+    
+    try:
+        print(f"\nExample 3: Testing with full instruction set from error message")
+        result = strict_encode(value, full_instructions)
+        print(f"Successfully encoded with {len(result)} operations")
+        print(f"First few results: {result[:5]}...")
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "demo":
+        # Run the demo if requested
+        demo_encoder()
+    else:
+        # Otherwise, start the FastAPI server
+        import uvicorn
+        print("Starting FastAPI server. Run with 'demo' argument to see encoder demo.")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
