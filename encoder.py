@@ -1,7 +1,10 @@
+"""
+Optimized secure encoder module for handling encoding operations.
+This module provides functions for encoding data without using eval().
+"""
 import re
 import logging
 from functools import lru_cache
-import time
 
 # Set up logging
 logging.basicConfig(
@@ -28,7 +31,6 @@ OP_UNKNOWN = 0
 # Cache for operation parsing
 operation_cache = {}
 
-# Cache for operation functions
 @lru_cache(maxsize=128)
 def get_operation_type(operation):
     """
@@ -188,7 +190,6 @@ def strict_encode(n, instructions):
     
     # Split and strip operations once
     operations = [op.strip() for op in instructions.split(';')]
-    results = []
     
     # Pre-allocate the results list for better performance
     results = [0] * len(operations)
@@ -369,13 +370,13 @@ def benchmark(func, *args, **kwargs):
     Returns:
         tuple: (result, execution_time_ms)
     """
+    import time
     start_time = time.time()
     result = func(*args, **kwargs)
     end_time = time.time()
     execution_time_ms = (end_time - start_time) * 1000
     return result, execution_time_ms
 
-# Clear the operation cache
 def clear_caches():
     """Clear all internal caches to free memory."""
     operation_cache.clear()
