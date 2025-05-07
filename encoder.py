@@ -4,6 +4,7 @@ This module provides functions for encoding data without using eval().
 """
 import re
 import logging
+from functools import lru_cache
 
 # Set up logging
 logging.basicConfig(
@@ -12,71 +13,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def strict_encode(n, instructions):
-    """
-    Apply a series of encoding transformations to a value n based on the provided instructions.
-    This implementation avoids using eval() for better security.
-    
-    Args:
-        n (int): The numeric value to encode
-        instructions (str): A string containing semicolon-separated encoding instructions
-    
-    Returns:
-        list: A list of encoded values after applying each instruction
-    """
-    if not isinstance(n, int):
-        try:
-            n = int(n)
-        except (ValueError, TypeError):
-            raise ValueError(f"Input 'n' must be an integer, got {type(n)}")
-    
-    operations = instructions.split(';')
-    results = []
-    
-    for op in operations:
-        op = op.strip()
-        result = apply_operation(n, op)
-        results.append(result)
-    
-    return results
+# Pre-compile regex patterns for better performance
+ADDITION_PATTERN = re.compile(r'$$n\s*\+\s*(\d+)$$\s*%\s*256')
+SUBTRACTION_PATTERN = re.compile(r'$$n\s*\-\s*(\d+)\s*\+\s*256$$\s*%\s*256')
+XOR_PATTERN = re.compile(r'n\s*\^\s*(\d+)')
 
-def apply_operation(n, operation):
+# Operation type constants for faster dispatch
+OP_ADD = 1
+OP_SUB = 2
+OP_XOR = 3
+OP_NOT = 4
+OP_SHIFT = 5
+OP_UNKNOWN = 0
+
+def get_operation_type(operation):
+    """
+    Determine the type of operation for faster dispatch.
+    """
+    if ADDITION_PATTERN.match(operation):
+        return OP_ADD
+    elif SUBTRACTION_PATTERN.match(operation):
+        return OP_SUB
+    elif XOR_PATTERN.match(operation):
+        return OP_XOR
+    elif operation == "~n & 255":
+        return OP_NOT
+    elif operation == "(n << 4 | (n & 0xFF) >> 4) & 255":
+        return OP_SHIFT
+    return OP_UNKNOWN
+
+@lru_cache(maxsize=1024)
+def apply_operation(n, operation, op_type=None):
     """
     Apply a single encoding operation to the value n.
+    Uses operation type for faster dispatch.
     
     Args:
         n (int): The value to encode
         operation (str): The operation to apply
+        op_type (int, optional): The pre-determined operation type
     
     Returns:
         int: The result of applying the operation
     """
-    # Addition with modulo: (n + X) % 256
-    addition_match = re.match(r'$$n\s*\+\s*(\d+)$$\s*%\s*256', operation)
-    if addition_match:
-        return (n + int(addition_match.group(1))) % 256
+    # Determine operation type if not provided
+    if op_type is None:
+        op_type = get_operation_type(operation)
     
-    # Subtraction with modulo: (n - X + 256) % 256
-    subtraction_match = re.match(r'$$n\s*\-\s*(\d+)\s*\+\s*256$$\s*%\s*256', operation)
-    if subtraction_match:
-        return (n - int(subtraction_match.group(1)) + 256) % 256
+    # Fast dispatch based on operation type
+    if op_type == OP_ADD:
+        match = ADDITION_PATTERN.match(operation)
+        return (n + int(match.group(1))) % 256
     
-    # Bitwise XOR: n ^ X
-    xor_match = re.match(r'n\s*\^\s*(\d+)', operation)
-    if xor_match:
-        return n ^ int(xor_match.group(1))
+    elif op_type == OP_SUB:
+        match = SUBTRACTION_PATTERN.match(operation)
+        return (n - int(match.group(1)) + 256) % 256
     
-    # Bitwise NOT: ~n & 255
-    if operation == "~n & 255":
+    elif op_type == OP_XOR:
+        match = XOR_PATTERN.match(operation)
+        return n ^ int(match.group(1))
+    
+    elif op_type == OP_NOT:
         return ~n & 255
     
-    # Bit shifting: (n << 4 | (n & 0xFF) >> 4) & 255
-    if operation == "(n << 4 | (n & 0xFF) >> 4) & 255":
+    elif op_type == OP_SHIFT:
         return ((n << 4) | ((n & 0xFF) >> 4)) & 255
     
-    # If we get here, none of our patterns matched
-    # Let's try to handle the operation based on the operators it contains
-    
+    # Fallback for unknown operations
     # For operations like (n + X) % 256 or (n - X + 256) % 256
     if "%" in operation and "256" in operation:
         # Extract the expression inside the parentheses
@@ -116,6 +119,45 @@ def apply_operation(n, operation):
     # If we still can't handle it, raise an error
     raise ValueError(f"Unsupported operation: {operation}")
 
+def strict_encode(n, instructions):
+    """
+    Apply a series of encoding transformations to a value n based on the provided instructions.
+    This implementation avoids using eval() for better security.
+    
+    Args:
+        n (int): The numeric value to encode
+        instructions (str): A string containing semicolon-separated encoding instructions
+    
+    Returns:
+        list: A list of encoded values after applying each instruction
+    """
+    # Log the function call for debugging
+    logger.debug(f"strict_encode called with n={n}, instructions='{instructions}'")
+    
+    if not isinstance(n, int):
+        try:
+            n = int(n)
+        except (ValueError, TypeError):
+            raise ValueError(f"Input 'n' must be an integer, got {type(n)}")
+    
+    operations = instructions.split(';')
+    results = []
+    
+    # Pre-determine operation types for faster processing
+    op_types = [get_operation_type(op.strip()) for op in operations]
+    
+    # Process all operations
+    for i, op in enumerate(operations):
+        op = op.strip()
+        try:
+            result = apply_operation(n, op, op_types[i])
+            results.append(result)
+        except Exception as e:
+            logger.error(f"Error applying operation '{op}': {e}")
+            raise ValueError(f"Error in operation '{op}': {e}")
+    
+    return results
+
 def encode_string(text, instructions):
     """
     Encode a string by applying the encoding instructions to each character.
@@ -150,3 +192,46 @@ def encode_bytes(data, instructions):
         encoded = strict_encode(byte, instructions)
         result.append(encoded)
     return result
+
+def batch_encode(values, instructions):
+    """
+    Encode multiple values with the same instructions.
+    
+    Args:
+        values (list): List of integers to encode
+        instructions (str): The encoding instructions
+    
+    Returns:
+        list: A list of lists, where each inner list contains the encoded values for an input value
+    """
+    return [strict_encode(val, instructions) for val in values]
+
+# Cache management
+def clear_caches():
+    """Clear all function caches to free memory."""
+    apply_operation.cache_clear()
+    logger.info("Encoder caches cleared")
+
+def benchmark(n, instructions, iterations=1000):
+    """
+    Benchmark the encoder performance.
+    
+    Args:
+        n (int): The value to encode
+        instructions (str): The encoding instructions
+        iterations (int): Number of iterations for the benchmark
+    
+    Returns:
+        float: Average time per operation in milliseconds
+    """
+    import time
+    
+    start_time = time.time()
+    for _ in range(iterations):
+        strict_encode(n, instructions)
+    end_time = time.time()
+    
+    total_time = end_time - start_time
+    avg_time = (total_time / iterations) * 1000  # Convert to milliseconds
+    
+    return avg_time
