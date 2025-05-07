@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from typing import Union, Dict, Any
+from fastapi.responses import JSONResponse, FileResponse
+from typing import Union
 import builtins
 import sys
 import logging
@@ -19,27 +19,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import our encoder functions
-from encoder import (
-    strict_encode, 
-    encode_string, 
-    encode_bytes,
-    batch_encode,
-    benchmark,
-    clear_caches
-)
-
-# Make strict_encode available globally
-builtins.strict_encode = strict_encode
-logger.info("Added strict_encode to builtins")
-
-# Run the patch script to ensure strict_encode is available in all anipy_api modules
+# Apply the direct patch before importing any anipy_api modules
 try:
-    from patch_anipy import patch_anipy_api
-    patch_success = patch_anipy_api()
-    logger.info(f"Patch script execution: {'Success' if patch_success else 'Failed'}")
+    from direct_patch import direct_patch, strict_encode
+    patch_success = direct_patch()
+    logger.info(f"Direct patch application: {'Success' if patch_success else 'Failed'}")
+    
+    # Make strict_encode available globally
+    builtins.strict_encode = strict_encode
+    logger.info("Added strict_encode to builtins")
 except Exception as e:
-    logger.error(f"Error running patch script: {e}")
+    logger.error(f"Error applying direct patch: {e}")
     logger.error(traceback.format_exc())
 
 # Now import anipy_api modules
@@ -113,6 +103,14 @@ async def global_exception_handler(request: Request, exc: Exception):
                                     logger.info(f"Added strict_encode to module: {name}")
                         except Exception:
                             pass
+                
+                # Try to re-apply the direct patch
+                try:
+                    from direct_patch import direct_patch
+                    direct_patch()
+                    logger.info("Re-applied direct patch during error handling")
+                except Exception as e:
+                    logger.error(f"Error re-applying direct patch: {e}")
                 
                 return JSONResponse(
                     status_code=500,
@@ -191,9 +189,6 @@ def test_encoder():
                 if hasattr(module, 'strict_encode'):
                     modules_with_function.append(module_name)
         
-        # Benchmark the encoder
-        benchmark_result = benchmark(value, instructions, iterations=1000)
-        
         return {
             "status": "success",
             "simple_test": result,
@@ -201,8 +196,7 @@ def test_encoder():
             "globally_available": has_global,
             "global_test": global_test,
             "modules_with_function": modules_with_function,
-            "benchmark_ms": benchmark_result,
-            "encoder_version": "secure_optimized"
+            "encoder_version": "direct_patch"
         }
     except Exception as e:
         logger.error(f"Encoder test failed: {e}")
@@ -237,6 +231,7 @@ def get_episodes(anime_id: str):
         if not hasattr(builtins, 'strict_encode'):
             logger.error("strict_encode not found in builtins before episode retrieval")
             # Add it again just to be sure
+            from direct_patch import strict_encode
             builtins.strict_encode = strict_encode
             logger.info("Re-added strict_encode to builtins")
         
@@ -260,13 +255,33 @@ def get_episodes(anime_id: str):
         # Get episodes with detailed logging
         logger.info("Retrieving episodes...")
         try:
+            # Add strict_encode to the anime object
+            anime.strict_encode = strict_encode
+            
+            # Add strict_encode to the anime class
+            if not hasattr(Anime, 'strict_encode'):
+                Anime.strict_encode = staticmethod(strict_encode)
+                logger.info("Added strict_encode to Anime class")
+            
+            # Add strict_encode to the module's globals
+            anime_module = sys.modules.get(Anime.__module__)
+            if anime_module and not hasattr(anime_module, 'strict_encode'):
+                setattr(anime_module, 'strict_encode', strict_encode)
+                logger.info(f"Added strict_encode to module: {Anime.__module__}")
+            
+            # Add strict_encode to the local namespace
+            local_vars = {'strict_encode': strict_encode}
+            
+            # Get episodes
             episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
             logger.info(f"Successfully retrieved {len(episodes)} episodes")
         except Exception as e:
             logger.error(f"Error retrieving episodes: {e}")
+            
             # Check if the error is related to strict_encode
             if "strict_encode" in str(e):
                 logger.error("This is a strict_encode error")
+                
                 # Try to extract the encoding instructions from the error
                 match = re.search(r'strict_encode$$(\d+), "(.*?)"$$', str(e))
                 if match:
@@ -281,6 +296,22 @@ def get_episodes(anime_id: str):
                         logger.error("Function works but isn't accessible in the right scope")
                     except Exception as inner_e:
                         logger.error(f"Manual execution failed: {inner_e}")
+                
+                # Try to re-apply the direct patch
+                try:
+                    from direct_patch import direct_patch
+                    direct_patch()
+                    logger.info("Re-applied direct patch")
+                    
+                    # Try again with the patched function
+                    try:
+                        episodes = anime.get_episodes(lang=LanguageTypeEnum.SUB)
+                        logger.info(f"Successfully retrieved {len(episodes)} episodes after re-patching")
+                        return {"anime_id": anime_id, "episodes": episodes}
+                    except Exception as retry_e:
+                        logger.error(f"Error retrieving episodes after re-patching: {retry_e}")
+                except Exception as patch_e:
+                    logger.error(f"Error re-applying direct patch: {patch_e}")
             
             return {"error": f"Failed to retrieve episodes: {str(e)}"}
         
@@ -304,6 +335,7 @@ def get_streams(
         if not hasattr(builtins, 'strict_encode'):
             logger.error("strict_encode not found in builtins before stream retrieval")
             # Add it again just to be sure
+            from direct_patch import strict_encode
             builtins.strict_encode = strict_encode
             logger.info("Re-added strict_encode to builtins")
         
@@ -321,6 +353,9 @@ def get_streams(
         try:
             anime_obj = Anime.from_search_result(provider, target_result)
             logger.info(f"Created anime object for: {anime_obj.name}")
+            
+            # Add strict_encode to the anime object
+            anime_obj.strict_encode = strict_encode
         except Exception as e:
             logger.error(f"Error creating anime object: {e}")
             return {"error": f"Failed to create anime object: {str(e)}"}
@@ -382,6 +417,10 @@ def get_anime_info(anime_id: str):
             return {"error": "Anime not found with this ID."}
 
         anime = Anime.from_search_result(provider, target_result)
+        
+        # Add strict_encode to the anime object
+        anime.strict_encode = strict_encode
+        
         info = anime.get_info()
         return {"info": info}
 
