@@ -19,22 +19,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Apply the stream fix before importing any anipy_api modules
+# Apply the ultimate fix before importing any anipy_api modules
 try:
-    from stream_fix import apply_stream_fix, strict_encode
-    fix_success = apply_stream_fix()
-    logger.info(f"Stream fix application: {'Success' if fix_success else 'Failed'}")
+    from ultimate_fix import apply_ultimate_fix, strict_encode
+    fix_success = apply_ultimate_fix()
+    logger.info(f"Ultimate fix application: {'Success' if fix_success else 'Failed'}")
     
     # Make strict_encode available globally
     builtins.strict_encode = strict_encode
     logger.info("Added strict_encode to builtins")
 except Exception as e:
-    logger.error(f"Error applying stream fix: {e}")
+    logger.error(f"Error applying ultimate fix: {e}")
     logger.error(traceback.format_exc())
 
 # Now import anipy_api modules
 from anipy_api.provider import get_provider, LanguageTypeEnum
 from anipy_api.anime import Anime
+
+# Add strict_encode to the Anime class
+Anime.strict_encode = staticmethod(strict_encode)
+logger.info("Added strict_encode to Anime class")
 
 app = FastAPI()
 
@@ -67,9 +71,9 @@ async def global_exception_handler(request: Request, exc: Exception):
             
             # Try to fix the issue on the fly
             try:
-                from stream_fix import apply_stream_fix
-                apply_stream_fix()
-                logger.info("Re-applied stream fix during error handling")
+                from ultimate_fix import apply_ultimate_fix
+                apply_ultimate_fix()
+                logger.info("Re-applied ultimate fix during error handling")
                 
                 return JSONResponse(
                     status_code=500,
@@ -81,7 +85,7 @@ async def global_exception_handler(request: Request, exc: Exception):
                     }
                 )
             except Exception as e:
-                logger.error(f"Error re-applying stream fix: {e}")
+                logger.error(f"Error re-applying ultimate fix: {e}")
         
         # Try to extract the encoding instructions from the error
         match = re.search(r'strict_encode$$(\d+), "(.*?)"$$', error_msg)
@@ -214,7 +218,7 @@ def test_encoder():
             "globally_available": has_global,
             "global_test": global_test,
             "modules_with_function": modules_with_function,
-            "encoder_version": "stream_fix"
+            "encoder_version": "ultimate_fix"
         }
     except Exception as e:
         logger.error(f"Encoder test failed: {e}")
@@ -245,19 +249,15 @@ def get_episodes(anime_id: str):
         if not provider:
             return {"error": "Provider not initialized"}
         
-        # Verify strict_encode is available before proceeding
-        if not hasattr(builtins, 'strict_encode'):
-            logger.error("strict_encode not found in builtins before episode retrieval")
-            # Add it again just to be sure
-            from stream_fix import strict_encode
-            builtins.strict_encode = strict_encode
-            logger.info("Re-added strict_encode to builtins")
-        
         # Create anime object with detailed logging
         logger.info(f"Creating Anime object for ID: {anime_id}")
         try:
             # Create the anime object
             anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
+            
+            # Add strict_encode to the anime object
+            anime.strict_encode = strict_encode
+            
             logger.info("Successfully created Anime object")
         except Exception as e:
             logger.error(f"Error creating Anime object: {e}")
@@ -268,20 +268,24 @@ def get_episodes(anime_id: str):
                 
                 # Try to fix the issue on the fly
                 try:
-                    from stream_fix import apply_stream_fix
-                    apply_stream_fix()
-                    logger.info("Re-applied stream fix")
+                    from ultimate_fix import apply_ultimate_fix
+                    apply_ultimate_fix()
+                    logger.info("Re-applied ultimate fix")
                     
                     # Try again with the fixed function
                     try:
                         # Create the anime object
                         anime = Anime(provider, "", anime_id, [LanguageTypeEnum.SUB])
+                        
+                        # Add strict_encode to the anime object
+                        anime.strict_encode = strict_encode
+                        
                         logger.info("Successfully created Anime object after fix")
                     except Exception as retry_e:
                         logger.error(f"Error creating Anime object after fix: {retry_e}")
                         return {"error": f"Failed to create anime object after fix: {str(retry_e)}"}
                 except Exception as fix_e:
-                    logger.error(f"Error re-applying stream fix: {fix_e}")
+                    logger.error(f"Error re-applying ultimate fix: {fix_e}")
                     return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
             else:
                 return {"error": f"Failed to create anime object: {str(e)}"}
@@ -301,9 +305,9 @@ def get_episodes(anime_id: str):
                 
                 # Try to fix the issue on the fly
                 try:
-                    from stream_fix import apply_stream_fix
-                    apply_stream_fix()
-                    logger.info("Re-applied stream fix")
+                    from ultimate_fix import apply_ultimate_fix
+                    apply_ultimate_fix()
+                    logger.info("Re-applied ultimate fix")
                     
                     # Try again with the fixed function
                     try:
@@ -315,7 +319,7 @@ def get_episodes(anime_id: str):
                         logger.error(f"Error retrieving episodes after fix: {retry_e}")
                         return {"error": f"Failed to retrieve episodes after fix: {str(retry_e)}"}
                 except Exception as fix_e:
-                    logger.error(f"Error re-applying stream fix: {fix_e}")
+                    logger.error(f"Error re-applying ultimate fix: {fix_e}")
                     return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
             
             return {"error": f"Failed to retrieve episodes: {str(e)}"}
@@ -336,21 +340,13 @@ def get_streams(
         if not provider:
             return {"error": "Provider not initialized"}
         
-        # Verify strict_encode is available before proceeding
-        if not hasattr(builtins, 'strict_encode'):
-            logger.error("strict_encode not found in builtins before stream retrieval")
-            # Add it again just to be sure
-            from stream_fix import strict_encode
-            builtins.strict_encode = strict_encode
-            logger.info("Re-added strict_encode to builtins")
-        
-        # Apply the stream fix again just to be sure
+        # Apply the ultimate fix again just to be sure
         try:
-            from stream_fix import apply_stream_fix
-            apply_stream_fix()
-            logger.info("Re-applied stream fix before stream retrieval")
+            from ultimate_fix import apply_ultimate_fix
+            apply_ultimate_fix()
+            logger.info("Re-applied ultimate fix before stream retrieval")
         except Exception as e:
-            logger.error(f"Error re-applying stream fix: {e}")
+            logger.error(f"Error re-applying ultimate fix: {e}")
         
         logger.info(f"🔍 Searching for anime: {anime_id}")
         results = provider.get_search(anime_id)
@@ -364,6 +360,11 @@ def get_streams(
         
         # Create anime object
         try:
+            # Create the anime object with explicit strict_encode
+            # First, ensure strict_encode is in the module's globals
+            import anipy_api.anime
+            anipy_api.anime.strict_encode = strict_encode
+            
             # Create the anime object
             anime_obj = Anime.from_search_result(provider, target_result)
             
@@ -378,24 +379,27 @@ def get_streams(
             if "local variable 'strict_encode' referenced before assignment" in str(e):
                 logger.error("This is a local variable reference error")
                 
-                # Try to fix the issue on the fly
+                # Try a more direct approach
                 try:
-                    from stream_fix import apply_stream_fix
-                    apply_stream_fix()
-                    logger.info("Re-applied stream fix")
+                    # Create a custom Anime class with strict_encode built-in
+                    class CustomAnime(Anime):
+                        def __init__(self, *args, **kwargs):
+                            # Define strict_encode in the local scope
+                            self.strict_encode = strict_encode
+                            super().__init__(*args, **kwargs)
+                        
+                        @classmethod
+                        def from_search_result(cls, provider, search_result):
+                            instance = super().from_search_result(provider, search_result)
+                            instance.strict_encode = strict_encode
+                            return instance
                     
-                    # Try again with the fixed function
-                    try:
-                        # Create the anime object with explicit strict_encode
-                        anime_obj = Anime.from_search_result(provider, target_result)
-                        anime_obj.strict_encode = strict_encode
-                        logger.info(f"Created anime object for: {anime_obj.name} after fix")
-                    except Exception as retry_e:
-                        logger.error(f"Error creating anime object after fix: {retry_e}")
-                        return {"error": f"Failed to create anime object after fix: {str(retry_e)}"}
-                except Exception as fix_e:
-                    logger.error(f"Error re-applying stream fix: {fix_e}")
-                    return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
+                    # Use the custom class
+                    anime_obj = CustomAnime.from_search_result(provider, target_result)
+                    logger.info(f"Created custom anime object for: {anime_obj.name}")
+                except Exception as custom_e:
+                    logger.error(f"Error creating custom anime object: {custom_e}")
+                    return {"error": f"Failed to create anime object with custom class: {str(custom_e)}"}
             else:
                 return {"error": f"Failed to create anime object: {str(e)}"}
         
@@ -428,26 +432,28 @@ def get_streams(
             if "local variable 'strict_encode' referenced before assignment" in str(e):
                 logger.error("This is a local variable reference error during video retrieval")
                 
-                # Try to fix the issue on the fly
+                # Try a more direct approach - monkey patch the method
                 try:
-                    from stream_fix import apply_stream_fix
-                    apply_stream_fix()
-                    logger.info("Re-applied stream fix")
+                    # Get the original method
+                    original_get_videos = anime_obj.get_videos
                     
-                    # Try again with the fixed function
-                    try:
-                        # Add strict_encode to the anime object
-                        anime_obj.strict_encode = strict_encode
+                    # Create a wrapper that ensures strict_encode is available
+                    def get_videos_wrapper(self, episode, language=None):
+                        # Define strict_encode in the local scope
+                        strict_encode_local = strict_encode
                         
-                        # Get videos
-                        streams = anime_obj.get_videos(episode, language)
-                        logger.info(f"Got {len(streams) if streams else 0} streams after fix")
-                    except Exception as retry_e:
-                        logger.error(f"Error getting videos after fix: {retry_e}")
-                        return {"error": f"Failed to get videos after fix: {str(retry_e)}"}
-                except Exception as fix_e:
-                    logger.error(f"Error re-applying stream fix: {fix_e}")
-                    return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
+                        # Call the original method with the local variable
+                        return original_get_videos(episode, language)
+                    
+                    # Replace the method
+                    anime_obj.get_videos = types.MethodType(get_videos_wrapper, anime_obj)
+                    
+                    # Try again
+                    streams = anime_obj.get_videos(episode, language)
+                    logger.info(f"Got {len(streams) if streams else 0} streams after monkey patching")
+                except Exception as patch_e:
+                    logger.error(f"Error after monkey patching: {patch_e}")
+                    return {"error": f"Failed to get videos after monkey patching: {str(patch_e)}"}
             
             return {"error": f"Failed to get videos: {str(e)}"}
 
@@ -505,9 +511,9 @@ def get_anime_info(anime_id: str):
                 
                 # Try to fix the issue on the fly
                 try:
-                    from stream_fix import apply_stream_fix
-                    apply_stream_fix()
-                    logger.info("Re-applied stream fix")
+                    from ultimate_fix import apply_ultimate_fix
+                    apply_ultimate_fix()
+                    logger.info("Re-applied ultimate fix")
                     
                     # Try again with the fixed function
                     try:
@@ -523,7 +529,7 @@ def get_anime_info(anime_id: str):
                         logger.error(f"Error getting anime info after fix: {retry_e}")
                         return {"error": f"Failed to get anime info after fix: {str(retry_e)}"}
                 except Exception as fix_e:
-                    logger.error(f"Error re-applying stream fix: {fix_e}")
+                    logger.error(f"Error re-applying ultimate fix: {fix_e}")
                     return {"error": f"Failed to fix local variable issue: {str(fix_e)}"}
             
             return {"error": f"Failed to get anime info: {str(e)}"}
